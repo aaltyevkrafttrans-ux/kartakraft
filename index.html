@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг ставок логистики</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; height: 100vh; }
+        #sidebar { width: 410px; background: #f8f9fa; border-right: 1px solid #ddd; display: flex; flex-direction: column; padding: 18px; box-sizing: border-box; overflow-y: auto; z-index: 1000; }
+        #map { flex-grow: 1; height: 100%; background: #e5e3df; }
+        h2 { margin: 0 0 12px 0; font-size: 17px; color: #333; display: flex; justify-content: space-between; align-items: center; }
+        .form-group { margin-bottom: 10px; }
+        .row { display: flex; gap: 8px; }
+        label { display: block; font-size: 11px; color: #666; margin-bottom: 3px; font-weight: 600; text-transform: uppercase; }
+        input[type="text"], input[type="number"], input[type="date"], select, button { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        button { background: #0066cc; color: white; border: none; font-weight: 600; cursor: pointer; margin-top: 4px; }
+        button:hover { background: #0052a3; }
+        button:disabled { background: #99c2eb; cursor: not-allowed; }
+        .checkbox-group { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; background: #fff3cd; padding: 8px 10px; border-radius: 6px; border: 1px solid #ffeeba; }
+        .checkbox-group input[type="checkbox"] { width: 16px; height: 16px; margin: 0; cursor: pointer; }
+        .checkbox-group label { margin: 0; font-size: 12px; color: #856404; cursor: pointer; text-transform: none; }
+        .stats-box { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; margin-top: 10px; flex-grow: 1; overflow-y: auto; }
+        .route-card { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .route-card:last-child { border-bottom: none; }
+        .route-title { font-weight: bold; color: #222; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+        .badge { background: #e9ecef; color: #495057; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: normal; margin-left: 5px; }
+        .badge-iran { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600; margin-left: 5px; }
+        .route-avg { color: #28a745; font-weight: bold; font-size: 15px; white-space: nowrap; }
+        .route-meta { font-size: 12px; color: #777; margin-top: 4px; }
+        .history-list { font-size: 11px; color: #555; margin-top: 5px; padding-left: 14px; }
+        .btn-del { color: #dc3545; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; padding: 0; width: auto; display: inline; margin-left: 5px; }
+        #status { font-size: 12px; color: #0066cc; margin-top: 6px; font-weight: 500; }
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            #sidebar { width: 100%; height: 55vh; border-right: none; border-bottom: 1px solid #ddd; }
+            #map { height: 45vh; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <h2>🚛 Добавить ставку</h2>
+    <div class="row">
+        <div class="form-group" style="flex: 1;">
+            <label>Откуда</label>
+            <input type="text" id="origin" placeholder="Воронеж">
+        </div>
+        <div class="form-group" style="flex: 1;">
+            <label>Куда</label>
+            <input type="text" id="destination" placeholder="Гебзе">
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="form-group" style="flex: 2;">
+            <label>Тип транспорта</label>
+            <select id="transport">
+                <option value="Тент">Тент (82-92 м³)</option>
+                <option value="Реф">Рефрижератор</option>
+                <option value="Мега">Мега (100+ м³)</option>
+                <option value="Трал">Трал / Негабарит</option>
+                <option value="Контейнер">Контейнер</option>
+                <option value="Сборный">Сборный груз</option>
+            </select>
+        </div>
+        <div class="form-group" style="flex: 1.5;">
+            <label>Ставка</label>
+            <input type="number" id="price" placeholder="3800">
+        </div>
+        <div class="form-group" style="flex: 1;">
+            <label>Валюта</label>
+            <select id="currency">
+                <option value="$">$</option>
+                <option value="€">€</option>
+                <option value="₽">₽</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="form-group" style="flex: 1;">
+            <label>Дата</label>
+            <input type="date" id="date">
+        </div>
+        <div class="form-group" style="flex: 1.5;">
+            <label>Перевозчик / Прим.</label>
+            <input type="text" id="note" placeholder="Ника">
+        </div>
+    </div>
+
+    <div class="checkbox-group">
+        <input type="checkbox" id="viaIran">
+        <label for="viaIran">🕌 Через Иран (Турция – Нахчыван – Иран – Азерб. – Самур – РФ)</label>
+    </div>
+
+    <button id="saveBtn" onclick="addRate()">Сохранить в Google Таблицу</button>
+    <div id="status">⏳ Загрузка...</div>
+
+    <hr style="width: 100%; border: 0; border-top: 1px solid #ddd; margin: 14px 0;">
+
+    <h2>
+        <span>📊 Ориентиры цен</span>
+        <button onclick="loadFromGoogle()" style="width:auto; padding: 3px 8px; font-size: 11px; background:#6c757d;">🔄 Обновить</button>
+    </h2>
+    
+    <div class="row">
+        <div class="form-group" style="flex: 1;">
+            <label>Период</label>
+            <select id="periodFilter" onchange="renderAll()">
+                <option value="7">Неделя (7 дн.)</option>
+                <option value="30" selected>Месяц (30 дн.)</option>
+                <option value="90">Квартал (90 дн.)</option>
+                <option value="365">Год (365 дн.)</option>
+                <option value="all">Все время</option>
+            </select>
+        </div>
+        <div class="form-group" style="flex: 1;">
+            <label>Транспорт</label>
+            <select id="transportFilter" onchange="renderAll()">
+                <option value="all">Все типы</option>
+                <option value="Тент">Тент</option>
+                <option value="Реф">Реф</option>
+                <option value="Мега">Мега</option>
+                <option value="Трал">Трал</option>
+                <option value="Контейнер">Контейнер</option>
+                <option value="Сборный">Сборный груз</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <input type="text" id="searchFilter" placeholder="🔍 Поиск города (напр. Мерсин)..." oninput="renderAll()">
+    </div>
+
+    <div id="routesList" class="stats-box"></div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxs-zaDc0f1l5bdLxP2RU4RUPOrbocJUjkRvyN1uQPYGS1gyCybYGWN5y3vzNCfocx7w/exec';
+
+    const map = L.map('map').setView([42.5, 43.0], 5);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let mapLayer = L.layerGroup().addTo(map);
+    document.getElementById('date').valueAsDate = new Date();
+
+    let rates = [];
+    let cityCache = JSON.parse(localStorage.getItem('cityCoordsCache')) || {
+        'москва': [55.7558, 37.6173], 'стамбул': [41.0082, 28.9784],
+        'воронеж': [51.6608, 39.2003], 'мерсин': [36.8121, 34.6415],
+        'измир': [38.4237, 27.1428], 'ижевск': [56.8527, 53.2115],
+        'гебзе': [40.8028, 29.4307], 'атырау': [47.1167, 51.8833]
+    };
+    let routeGeoCache = JSON.parse(localStorage.getItem('routeGeoCacheV2')) || {};
+
+    function setStatus(text, isError = false) {
+        const el = document.getElementById('status');
+        el.style.color = isError ? '#dc3545' : '#0066cc';
+        el.innerText = text;
+    }
+
+    async function loadFromGoogle() {
+        setStatus('⏳ Загружаем ставки из Google Таблицы...');
+        try {
+            const res = await fetch(GOOGLE_SCRIPT_URL);
+            const rawData = await res.json();
+            rates = rawData.filter(r => r && r.origin && r.dest && !isNaN(r.price));
+            await renderAll();
+            setStatus(`✅ Синхронизировано (записей: ${rates.length})`);
+        } catch (e) {
+            setStatus('❌ Ошибка загрузки: ' + e.message, true);
+        }
+    }
+
+    async function getCoords(city) {
+        const key = city.trim().toLowerCase();
+        if (cityCache[key]) return cityCache[key];
+
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}&limit=1`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+            const first = data.at(0);
+            const coords = [parseFloat(first.lat), parseFloat(first.lon)];
+            cityCache[key] = coords;
+            localStorage.setItem('cityCoordsCache', JSON.stringify(cityCache));
+            return coords;
+        }
+        throw new Error(`Город "${city}" не найден на карте`);
+    }
+
+    // Определение коридора и промежуточных точек (Верхний Ларс / Самур / Иран)
+    function buildWaypoints(orig, dest, isIran) {
+        const lat1 = orig.at(0), lon1 = orig.at(1);
+        const lat2 = dest.at(0), lon2 = dest.at(1);
+
+        // Определяем, находится ли точка в Турции (примерные границы: lat 35.8..42.2, lon 25.5..44.8)
+        const isTurkey = (lat, lon) => lat >= 35.8 && lat <= 42.3 && lon >= 25.5 && lon <= 44.8;
+        // Определяем, находится ли точка севернее Кавказа (РФ, Казахстан, Беларусь)
+        const isNorthCaucasus = (lat, lon) => lat > 43.3 && lon > 36.0;
+
+        const origTR = isTurkey(lat1, lon1);
+        const destTR = isTurkey(lat2, lon2);
+        const origNorth = isNorthCaucasus(lat1, lon1);
+        const destNorth = isNorthCaucasus(lat2, lon2);
+
+        const isTRtoNorth = origTR && destNorth;
+        const isNorthtoTR = origNorth && destTR;
+
+        // Ключевые контрольные точки (координаты трасс)
+        const PT_LARS = [42.7350, 44.6260];       // КПП Верхний Ларс (РФ - Грузия)
+        const PT_SAMUR = [41.6350, 48.5150];      // КПП Яраг-Казмаляр / Самур (РФ - Азербайджан)
+        const PT_TBILISI = [41.6938, 44.8015];    // Тбилиси (транзит Грузия)
+        const PT_SARPI = [41.5210, 41.5470];      // КПП Сарпи (Грузия - Турция)
+        const PT_BAKU_BYPASS = [40.3000, 49.6500];// Объезд Баку (Азербайджан)
+        const PT_ASTARA = [38.4410, 48.8750];     // Астара (Азербайджан - Иран)
+        const PT_TABRIZ = [38.0962, 46.2738];     // Тебриз (Северный Иран)
+        const PT_JULFA = [38.9400, 45.6300];      // Джульфа (Иран - Нахчыван)
+        const PT_NAKHCHIVAN = [39.2089, 45.4122]; // Нахчыван
+        const PT_DILUCU = [39.6550, 44.8050];     // КПП Дилуджу / Садарак (Нахчыван - Турция)
+
+        // 1. Маршрут с галочкой "Через Иран"
+        if (isIran) {
+            if (isTRtoNorth) {
+                return [orig, PT_DILUCU, PT_NAKHCHIVAN, PT_JULFA, PT_TABRIZ, PT_ASTARA, PT_BAKU_BYPASS, PT_SAMUR, dest];
+            }
+            if (isNorthtoTR) {
+                return [orig, PT_SAMUR, PT_BAKU_BYPASS, PT_ASTARA, PT_TABRIZ, PT_JULFA, PT_NAKHCHIVAN, PT_DILUCU, dest];
+            }
+            // Если направление нестандартное, но галочка стоит — ведем через Иран/Нахчыван/Самур по направлению
+            if (lon1 < lon2) {
+                return [orig, PT_DILUCU, PT_NAKHCHIVAN, PT_JULFA, PT_TABRIZ, PT_ASTARA, PT_SAMUR, dest];
+            } else {
+                return [orig, PT_SAMUR, PT_ASTARA, PT_TABRIZ, PT_JULFA, PT_NAKHCHIVAN, PT_DILUCU, dest];
+            }
+        }
+
+        // 2. Стандартный маршрут между РФ/КЗ и Турцией (без Ирана) -> строго через Кавказ (Верхний Ларс)
+        if (isTRtoNorth) {
+            // Если точка на севере сильно восточнее (например Атырау / Казахстан, lon > 49), можно через Самур или Ларс;
+            // По умолчанию для РФ-Турция используем Верхний Ларс + Сарпи
+            if (lon2 > 50.0) {
+                return [orig, PT_SARPI, PT_TBILISI, PT_SAMUR, dest];
+            }
+            return [orig, PT_SARPI, PT_TBILISI, PT_LARS, dest];
+        }
+
+        if (isNorthtoTR) {
+            if (lon1 > 50.0) {
+                return [orig, PT_SAMUR, PT_TBILISI, PT_SARPI, dest];
+            }
+            return [orig, PT_LARS, PT_TBILISI, PT_SARPI, dest];
+        }
+
+        // Для всех остальных направлений (например внутри РФ или Турция-Европа)
+        return [orig, dest];
+    }
+
+    // Построение автодорожного маршрута через OSRM с учетом контрольных точек
+    async function getRoadRoute(orig, dest, isIran) {
+        const waypoints = buildWaypoints(orig, dest, isIran);
+        const cacheKey = waypoints.map(p => `${p.at(0).toFixed(3)},${p.at(1).toFixed(3)}`).join('|');
+        
+        if (routeGeoCache[cacheKey]) return routeGeoCache[cacheKey];
+
+        try {
+            const coordsStr = waypoints.map(p => `${p.at(1)},${p.at(0)}`).join(';');
+            const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if (data && data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                const route = data.routes.at(0);
+                const latlngs = route.geometry.coordinates.map(c => [c.at(1), c.at(0)]);
+                const distKm = Math.round(route.distance / 1000);
+                const result = { latlngs, distKm };
+                routeGeoCache[cacheKey] = result;
+                localStorage.setItem('routeGeoCacheV2', JSON.stringify(routeGeoCache));
+                return result;
+            }
+        } catch (e) {
+            console.warn('Ошибка OSRM, строим по контрольным точкам:', e);
+        }
+        // Резервный вариант: соединяем контрольные точки линиями, чтобы не шел через Европу
+        return { latlngs: waypoints, distKm: null };
+    }
+
+    async function addRate() {
+        const origin = document.getElementById('origin').value.trim();
+        const dest = document.getElementById('destination').value.trim();
+        const transport = document.getElementById('transport').value;
+        const price = parseFloat(document.getElementById('price').value);
+        const currency = document.getElementById('currency').value;
+        const date = document.getElementById('date').value;
+        let note = document.getElementById('note').value.trim();
+        const viaIran = document.getElementById('viaIran').checked;
+
+        if (!origin || !dest || !price || !date) {
+            alert('Заполните города, ставку и дату.');
+            return;
+        }
+
+        // Автоматически добавляем метку в примечание для сохранения в Google Таблице
+        if (viaIran && !note.toLowerCase().includes('через иран')) {
+            note = note ? `Через Иран | ${note}` : 'Через Иран';
+        }
+
+        const btn = document.getElementById('saveBtn');
+        btn.disabled = true;
+        setStatus('⏳ Строим маршрут и сохраняем в таблицу...');
+
+        try {
+            const origCoords = await getCoords(origin);
+            const destCoords = await getCoords(dest);
+
+            const newRate = {
+                id: Date.now(),
+                origin: origin.charAt(0).toUpperCase() + origin.slice(1),
+                origCoords,
+                dest: dest.charAt(0).toUpperCase() + dest.slice(1),
+                destCoords,
+                transport, price, currency, date, note
+            };
+
+            await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'add', rate: newRate })
+            });
+
+            rates.push(newRate);
+            await renderAll();
+            document.getElementById('price').value = '';
+            document.getElementById('note').value = '';
+            document.getElementById('viaIran').checked = false;
+            setStatus('✅ Ставка сохранена в Google Таблицу!');
+        } catch (e) {
+            setStatus('❌ ' + e.message, true);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function deleteRate(id) {
+        if (!confirm('Удалить эту ставку из Google Таблицы?')) return;
+        setStatus('⏳ Удаляем запись...');
+        rates = rates.filter(r => String(r.id) !== String(id));
+        await renderAll();
+
+        try {
+            await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', id: id })
+            });
+            setStatus('✅ Запись удалена');
+        } catch (e) {
+            setStatus('❌ Ошибка при удалении', true);
+        }
+    }
+
+    async function renderAll() {
+        mapLayer.clearLayers();
+        const listContainer = document.getElementById('routesList');
+        listContainer.innerHTML = '';
+
+        const daysFilter = document.getElementById('periodFilter').value;
+        const transFilter = document.getElementById('transportFilter').value;
+        const search = document.getElementById('searchFilter').value.toLowerCase();
+        const now = new Date();
+
+        const filtered = rates.filter(r => {
+            const routeName = `${r.origin} ${r.dest}`.toLowerCase();
+            if (search && !routeName.includes(search)) return false;
+            if (transFilter !== 'all' && r.transport !== transFilter) return false;
+            if (daysFilter === 'all') return true;
+            const diffDays = (now - new Date(r.date)) / (1000 * 60 * 60 * 24);
+            return diffDays <= parseInt(daysFilter);
+        });
+
+        const grouped = {};
+        filtered.forEach(r => {
+            const isIran = String(r.note || '').toLowerCase().includes('через иран');
+            const routeTag = isIran ? ' [Через Иран]' : '';
+            const key = `${r.origin} → ${r.dest} [${r.transport}]${routeTag} (${r.currency})`;
+            if (!grouped[key]) {
+                grouped[key] = {
+                    items: [],
+                    origCoords: r.origCoords,
+                    destCoords: r.destCoords,
+                    currency: r.currency,
+                    transport: r.transport,
+                    isIran: isIran,
+                    title: `${r.origin} → ${r.dest}`
+                };
+            }
+            grouped[key].items.push(r);
+        });
+
+        if (Object.keys(grouped).length === 0) {
+            listContainer.innerHTML = '<div style="color:#888; font-size:13px;">Нет ставок по выбранным фильтрам.</div>';
+            return;
+        }
+
+        const colors = { 'Тент': '#0066cc', 'Реф': '#00a8cc', 'Мега': '#6f42c1', 'Трал': '#fd7e14', 'Контейнер': '#20c997', 'Сборный': '#6c757d' };
+
+        for (const key in grouped) {
+            const group = grouped[key];
+            const sum = group.items.reduce((acc, item) => acc + item.price, 0);
+            const avg = Math.round(sum / group.items.length);
+            const min = Math.min(...group.items.map(i => i.price));
+            const max = Math.max(...group.items.map(i => i.price));
+
+            // Если через Иран — выделяем линию оранжево-золотым цветом (или цветом транспорта с пунктиром)
+            const lineColor = group.isIran ? '#d97706' : (colors[group.transport] || '#0066cc');
+            let distInfo = '';
+
+            if (group.origCoords && group.destCoords && !isNaN(group.origCoords.at(0)) && !isNaN(group.destCoords.at(0))) {
+                const roadData = await getRoadRoute(group.origCoords, group.destCoords, group.isIran);
+                
+                if (roadData.distKm) {
+                    const perKm = (avg / roadData.distKm).toFixed(2);
+                    distInfo = ` | ~${roadData.distKm} км (${perKm} ${group.currency}/км)`;
+                }
+
+                const polyline = L.polyline(roadData.latlngs, {
+                    color: lineColor,
+                    weight: 4,
+                    opacity: 0.85,
+                    dashArray: group.isIran ? '8, 6' : null
+                }).addTo(mapLayer);
+
+                polyline.bindPopup(`
+                    <b>${group.title}</b> (${group.transport})${group.isIran ? '<br>🕌 <b>Маршрут: Через Иран</b>' : '<br>🛣️ <b>Маршрут: Кавказ (В. Ларс / Самур)</b>'}<br>
+                    Средняя ставка: <b>${avg} ${group.currency}</b><br>
+                    Мин/Макс: ${min} – ${max} ${group.currency}${distInfo ? '<br>' + distInfo.replace(' | ', '') : ''}<br>
+                    Котировок: ${group.items.length}
+                `);
+
+                L.circleMarker(group.origCoords, { radius: 6, color: '#28a745', fillColor: '#28a745', fillOpacity: 1 }).addTo(mapLayer);
+                L.circleMarker(group.destCoords, { radius: 6, color: '#dc3545', fillColor: '#dc3545', fillOpacity: 1 }).addTo(mapLayer);
+            }
+
+            const historyHtml = group.items
+                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                .map(i => {
+                    const cleanDate = String(i.date).split('T').at(0);
+                    return `<li>${cleanDate}: <b>${i.price}${i.currency}</b> ${i.note ? `(${i.note})` : ''} <button class="btn-del" onclick="deleteRate(${i.id})">удалить</button></li>`;
+                })
+                .join('');
+
+            const iranBadge = group.isIran ? `<span class="badge-iran">Через Иран</span>` : '';
+
+            listContainer.innerHTML += `
+                <div class="route-card">
+                    <div class="route-title">
+                        <span>${group.title}<span class="badge">${group.transport}</span>${iranBadge}</span>
+                        <span class="route-avg">~ ${avg} ${group.currency}</span>
+                    </div>
+                    <div class="route-meta">Диапазон: ${min}–${max} ${group.currency}${distInfo} | Замеров: ${group.items.length}</div>
+                    <ul class="history-list">${historyHtml}</ul>
+                </div>
+            `;
+        }
+    }
+
+    loadFromGoogle();
+</script>
+</body>
+</html>
